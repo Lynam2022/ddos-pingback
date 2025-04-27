@@ -8,6 +8,8 @@ cd ddos-pingback
 
 python ddos_layer7.py
 
+python ddosvip.py
+
 python ddos.py
 
 sudo apt update
