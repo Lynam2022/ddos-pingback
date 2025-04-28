@@ -20,6 +20,9 @@ python3 ddos.py
 
 
 
+
+
+
 INSTALL VPS UBUNTU 
 
 sudo apt update
