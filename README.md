@@ -4,6 +4,12 @@ INSTALL
 
 sudo apt update
 
+pip install selenium
+
+pip install webdriver_manager
+
+pip install psutil
+
 pip install bs4
 
 pip install requests
