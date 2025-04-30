@@ -4,6 +4,8 @@ INSTALL
 
 sudo apt update
 
+pip install bs4
+
 pip install requests
 
 pip install scikit-learn
@@ -38,6 +40,8 @@ python AI-DDOS.py
 # INSTALL VPS UBUNTU 
 
 sudo apt update
+
+pip install bs4
 
 pip install requests
 
