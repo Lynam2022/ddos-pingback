@@ -16,25 +16,50 @@ from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
+import psutil
 
 # Kiểm tra phiên bản Python
-if sys.version_info < (3, 6):
-    print("Yêu cầu Python 3.6 trở lên.")
+if sys.version_info < (3, 7):  # cloudscraper và scikit-learn yêu cầu 3.7+
+    print("Yêu cầu Python 3.7 trở lên.")
+    sys.exit(1)
+
+# Kiểm tra pip
+try:
+    import pip
+except ImportError:
+    print("Lỗi: pip không được cài đặt. Vui lòng cài đặt pip trước.")
     sys.exit(1)
 
 # Hàm kiểm tra và cài đặt module
-def install_module(module_name):
+def install_module(module_name, max_attempts=3):
     try:
-        importlib.import_module(module_name)
+        importlib.import_module(module_mappings.get(module_name, module_name))
         print(f"Module {module_name} đã được cài đặt.")
     except ImportError:
         print(f"Module {module_name} chưa được cài đặt. Đang cài đặt...")
-        try:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", module_name])
-            print(f"Cài đặt {module_name} thành công.")
-        except subprocess.CalledProcessError:
-            print(f"Lỗi khi cài đặt {module_name}. Vui lòng cài đặt thủ công bằng 'pip install {module_name}'.")
-            sys.exit(1)
+        for attempt in range(max_attempts):
+            try:
+                subprocess.check_call([sys.executable, "-m", "pip", "install", module_name])
+                print(f"Cài đặt {module_name} thành công.")
+                return
+            except subprocess.CalledProcessError:
+                try:
+                    subprocess.check_call([sys.executable, "-m", "pip", "install", "--user", module_name])
+                    print(f"Cài đặt {module_name} thành công với --user.")
+                    return
+                except subprocess.CalledProcessError:
+                    if attempt == max_attempts - 1:
+                        print(f"Lỗi: Không thể cài đặt {module_name} sau {max_attempts} lần thử.")
+                        print(f"Vui lòng cài đặt thủ công: pip install {module_name}")
+                        sys.exit(1)
+            time.sleep(1)
+
+# Ánh xạ tên module trên PyPI và tên nhập trong Python
+module_mappings = {
+    "scikit-learn": "sklearn",
+    "beautifulsoup4": "bs4",
+    "webdriver-manager": "webdriver_manager"
+}
 
 # Danh sách module cần thiết
 required_modules = [
@@ -49,12 +74,20 @@ required_modules = [
     "webdriver-manager"
 ]
 
-# Kiểm tra và cài đặt các module
-for module in required_modules:
-    install_module(module)
+# Cài đặt các module đồng thời
+with ThreadPoolExecutor(max_workers=4) as executor:
+    executor.map(install_module, required_modules)
 
 # Nhập module pystyle sau khi đảm bảo cài đặt
 from pystyle import Colors, Colorate
+
+# Kiểm tra quyền ghi log
+try:
+    with open("ddos_log.txt", "a") as f:
+        f.write("")
+except PermissionError:
+    print("Lỗi: Không có quyền ghi vào ddos_log.txt.")
+    sys.exit(1)
 
 # Danh sách 100 User-Agent thực tế
 user_agents = [
