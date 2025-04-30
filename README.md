@@ -2,6 +2,18 @@
 
 INSTALL
 
+sudo apt update
+
+pip install requests
+
+pip install scikit-learn
+
+pip install cloudscraper
+
+pip install aiohttp
+
+pip install pystyle
+
 git clone https://github.com/Lynam2022/ddos-pingback.git
 
 cd ddos-pingback
@@ -27,6 +39,16 @@ python AI-DDOS.py
 
 sudo apt update
 
+pip install requests
+
+pip install scikit-learn
+
+pip install cloudscraper
+
+pip install aiohttp
+
+pip install pystyle
+
 git clone https://github.com/Lynam2022/ddos-pingback.git
 
 cd ddos-pingback
@@ -41,4 +63,4 @@ pip install pystyle
 
 pip install requests
 
-pip install fake_useragent
+
