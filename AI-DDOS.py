@@ -85,7 +85,6 @@ with ThreadPoolExecutor(max_workers=4) as executor:
 
 # Nhập các module sau khi đảm bảo cài đặt
 from pystyle import Colors, Colorate
-from tqdm import tqdm
 
 # Kiểm tra quyền ghi log
 try:
@@ -131,32 +130,17 @@ class ProxyManager:
 
     async def initialize(self):
         proxies = self.load_proxies()
-        valid_proxies = []
-        print("Đang kiểm tra proxy hoạt động...")
-        
-        # Kiểm tra tất cả proxy đồng thời với tqdm
-        max_concurrent = len(proxies)  # Kiểm tra đồng thời tất cả proxy
-        tasks = [self.test_proxy({"http": proxy, "https": proxy}) for proxy in proxies]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # Cập nhật thanh tiến trình
-        with tqdm(total=len(proxies), desc="Kiểm tra proxy", unit="proxy") as pbar:
-            for proxy, result in zip(proxies, results):
-                if isinstance(result, bool) and result:
-                    valid_proxies.append(proxy)
-                pbar.update(1)
-        
-        self.proxy_cache = deque(valid_proxies)
-        print(f"Đã lọc, còn {len(self.proxy_cache)} proxy hoạt động.")
+        self.proxy_cache = deque(proxies)
+        print(f"Đã tải {len(proxies)} proxy từ {self.proxy_file}.")
         with open("ddos_log.txt", "a") as f:
-            f.write(f"[{time.ctime()}] Loaded and filtered {len(self.proxy_cache)} active proxies from {self.proxy_file}\n")
+            f.write(f"[{time.ctime()}] Loaded {len(self.proxy_cache)} proxies from {self.proxy_file}\n")
 
     async def get_proxy(self):
         if not self.proxy_cache:
             print("Hết proxy, tải lại...")
             await self.initialize()
             if not self.proxy_cache:
-                print("Không thể tải proxy hoạt động. Dừng chương trình.")
+                print("Không thể tải proxy. Dừng chương trình.")
                 sys.exit(1)
         proxy = random.choice(self.proxy_cache)
         self.proxy_cache.remove(proxy)  # Xoay proxy
@@ -271,7 +255,7 @@ user_agents = [
     "Mozilla/5.0 (Linux; Android 13; SM-G996B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/114.0.0.0 Safari/537.36",
     "Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0",
-    "Mozilla/5.0 (iPad; CPU OS 16_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.2 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (iPad; CPU OS 16_2 like Mac OS X) AppleWebKit/505.1.15 (KHTML, like Gecko) Version/16.2 Mobile/15E148 Safari/604.1",
     "Mozilla/5.0 (Linux; Android 13; Pixel 3 XL) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36"
 ]
 
